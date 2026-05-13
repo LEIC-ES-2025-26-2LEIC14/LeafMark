@@ -1,6 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum SwapStatus { pending, accepted, rejected }
+enum SwapStatus {
+  pending,
+  accepted,
+  rejected,
+  completed,
+  cancelled,
+}
 
 class SwapRequest {
   final String id;
