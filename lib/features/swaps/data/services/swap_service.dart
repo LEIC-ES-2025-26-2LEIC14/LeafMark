@@ -49,4 +49,16 @@ class SwapService {
         .map((doc) => SwapRequest.fromMap(doc.data(), doc.id))
         .toList());
   }
+
+  Stream<List<SwapRequest>> exchangeHistory(String uid) {
+    return _db
+      .collection(_collection)
+      .where('status', isEqualTo: SwapStatus.accepted.name)
+      .snapshots()
+      .map((snap) => snap.docs
+          .map((doc) => SwapRequest.fromMap(doc.data(), doc.id))
+          .where((swap) =>
+              swap.requesterId == uid || swap.ownerId == uid)
+          .toList());
+  }
 }
