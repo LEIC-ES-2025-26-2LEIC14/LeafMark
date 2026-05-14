@@ -5,10 +5,13 @@ import '../../../books/domain/models/book.dart';
 import '../../data/services/swap_service.dart';
 import '../../domain/models/swap_request.dart';
 
-Class ExchangeHistoryScreen extends StatelessWidget {
-    const ExchangeHistoryScreen({super.key, required this.uid});
+class ExchangeHistoryScreen extends StatelessWidget {
+  const ExchangeHistoryScreen({
+    super.key,
+    required this.uid,
+  });
 
-    final String uid;
+  final String uid;
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +42,7 @@ Class ExchangeHistoryScreen extends StatelessWidget {
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: swaps.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final swap = swaps[index];
 
@@ -134,5 +137,4 @@ Class ExchangeHistoryScreen extends StatelessWidget {
       ),
     );
   }
-}
 }
