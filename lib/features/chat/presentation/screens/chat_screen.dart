@@ -322,11 +322,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             },
           ),
 
-          _InputBar(
-            controller: _controller,
-            onChanged: () => chatProvider.onTyping(widget.swapId),
-            onSend: _sendText,
-            onCounterOffer: null,
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('chats')
