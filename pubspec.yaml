@@ -57,6 +57,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   google_fonts: ^8.0.2
   provider: ^6.1.5+1
+  rxdart: ^0.28.0
 
 dev_dependencies:
   flutter_test:

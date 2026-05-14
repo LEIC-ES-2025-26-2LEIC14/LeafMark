@@ -6,6 +6,7 @@ class SwapProvider extends ChangeNotifier {
   final _service = SwapService();
 
   bool _isLoading = false;
+
   bool get isLoading => _isLoading;
 
   Stream<List<SwapRequest>> incoming(String uid) =>
@@ -17,6 +18,7 @@ class SwapProvider extends ChangeNotifier {
   Future<String> sendRequest(SwapRequest request) async {
     _isLoading = true;
     notifyListeners();
+
     try {
       return await _service.createSwapRequest(request);
     } finally {

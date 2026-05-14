@@ -183,27 +183,50 @@ class _RequestList extends StatelessWidget {
 
 class _StatusBadge extends StatelessWidget {
   final SwapStatus status;
+
   const _StatusBadge({required this.status});
 
   @override
   Widget build(BuildContext context) {
     Color color;
+
     switch (status) {
-      case SwapStatus.accepted: color = Colors.green; break;
-      case SwapStatus.rejected: color = Colors.red; break;
-      case SwapStatus.pending: color = Colors.orange; break;
+      case SwapStatus.accepted:
+        color = Colors.green;
+        break;
+
+      case SwapStatus.rejected:
+        color = Colors.red;
+        break;
+
+      case SwapStatus.pending:
+        color = Colors.orange;
+        break;
+
+      case SwapStatus.cancelled:
+        color = Colors.grey;
+        break;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 2,
+      ),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: color.withValues(alpha: 0.5),
+        ),
       ),
       child: Text(
         status.name.toUpperCase(),
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

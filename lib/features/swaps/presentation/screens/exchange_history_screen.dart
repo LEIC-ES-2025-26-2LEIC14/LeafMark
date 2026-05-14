@@ -38,7 +38,7 @@ class ExchangeHistoryScreen extends StatelessWidget {
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: swaps.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (context, index) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final swap = swaps[index];
               final isRequester = swap.requesterId == uid;

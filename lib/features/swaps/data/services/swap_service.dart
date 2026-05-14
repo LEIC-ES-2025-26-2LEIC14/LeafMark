@@ -1,27 +1,92 @@
-import 'package:flutter/material.dart';
-import '../../data/services/swap_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:rxdart/rxdart.dart';
 import '../../domain/models/swap_request.dart';
 
-class SwapProvider extends ChangeNotifier {
-  final _service = SwapService();
-  bool _isLoading = false;
-  bool get isLoading => _isLoading;
+class DuplicateSwapException implements Exception {}
 
-  Stream<List<SwapRequest>> incoming(String uid) => _service.incomingRequests(uid);
-  Stream<List<SwapRequest>> outgoing(String uid) => _service.outgoingRequests(uid);
+class SwapService {
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final String _collection = 'swap_requests';
 
-  Future<String> sendRequest(SwapRequest request) async {
-    _isLoading = true;
-    notifyListeners();
-    try {
-      return await _service.createSwapRequest(request);
-    } finally {
-      _isLoading = false;
-      notifyListeners();
+  Future<String> createSwapRequest(SwapRequest request) async {
+    final existing = await _db
+        .collection(_collection)
+        .where('bookWantedId', isEqualTo: request.bookWantedId)
+        .where('requesterId', isEqualTo: request.requesterId)
+        .where('status', isEqualTo: SwapStatus.pending.name)
+        .get(const GetOptions(source: Source.server));
+
+    if (existing.docs.isNotEmpty) {
+      throw DuplicateSwapException();
     }
+
+    final doc = await _db.collection(_collection).add(request.toMap());
+    return doc.id;
   }
 
-  Future<void> accept(String id) => _service.updateStatus(id, SwapStatus.accepted);
-  Future<void> reject(String id) => _service.updateStatus(id, SwapStatus.rejected);
-  Future<void> cancel(String id) => _service.deleteRequest(id);
+  Future<void> updateStatus(String id, SwapStatus status) async {
+    await _db
+        .collection(_collection)
+        .doc(id)
+        .update({'status': status.name});
+  }
+
+  Future<void> deleteRequest(String id) async {
+    await _db.collection(_collection).doc(id).delete();
+  }
+
+  Stream<List<SwapRequest>> incomingRequests(String uid) {
+    return _db
+        .collection(_collection)
+        .where('ownerId', isEqualTo: uid)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((doc) => SwapRequest.fromMap(doc.data(), doc.id))
+              .toList(),
+        );
+  }
+
+  Stream<List<SwapRequest>> outgoingRequests(String uid) {
+    return _db
+        .collection(_collection)
+        .where('requesterId', isEqualTo: uid)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((doc) => SwapRequest.fromMap(doc.data(), doc.id))
+              .toList(),
+        );
+  }
+
+  Stream<List<SwapRequest>> exchangeHistory(String uid) {
+    final asRequester = _db
+        .collection(_collection)
+        .where('requesterId', isEqualTo: uid)
+        .where('status', isEqualTo: SwapStatus.accepted.name)
+        .snapshots();
+
+    final asOwner = _db
+        .collection(_collection)
+        .where('ownerId', isEqualTo: uid)
+        .where('status', isEqualTo: SwapStatus.accepted.name)
+        .snapshots();
+
+    return Rx.combineLatest2(
+      asRequester,
+      asOwner,
+      (a, b) {
+        final all = [...a.docs, ...b.docs];
+
+        return all
+            .map(
+              (doc) => SwapRequest.fromMap(
+                doc.data(),
+                doc.id,
+              ),
+            )
+            .toList();
+      },
+    );
+  }
 }
