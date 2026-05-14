@@ -705,20 +705,27 @@ class _ActionButtons extends StatelessWidget {
   String get _bookWantedId => message.bookWantedId ?? '';
   String get _bookWantedOwnerId => currentUid;
 
-  Future<void> _handleAccept(BuildContext context) async {
-    final chatService = ChatService();
-    try {
-      await chatService.acceptSwap(swapId: swapId);
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Something went wrong: $e'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+Future<void> _handleAccept(BuildContext context) async {
+  final chatService = ChatService();
+
+  try {
+    await chatService.acceptSwap(
+      swapId: swapId,
+      bookOfferedId: _bookOfferedId,
+      bookOfferedOwnerId: _bookOfferedOwnerId,
+      bookWantedId: _bookWantedId,
+      bookWantedOwnerId: _bookWantedOwnerId,
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Something went wrong: $e'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
+}
 
   Future<void> _handleReject(BuildContext context) async {
     final chatService = ChatService();

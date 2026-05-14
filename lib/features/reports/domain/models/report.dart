@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class Report {
   final String id;
   final String reporterId;
@@ -21,7 +23,6 @@ class Report {
       'reportedUid': reportedUid,
       'reason': reason,
       'description': description,
-      'createdAt': createdAt,
     };
   }
 
