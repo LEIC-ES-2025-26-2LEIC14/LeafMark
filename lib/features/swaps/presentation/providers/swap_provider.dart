@@ -4,11 +4,15 @@ import '../../domain/models/swap_request.dart';
 
 class SwapProvider extends ChangeNotifier {
   final _service = SwapService();
+
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
-  Stream<List<SwapRequest>> incoming(String uid) => _service.incomingRequests(uid);
-  Stream<List<SwapRequest>> outgoing(String uid) => _service.outgoingRequests(uid);
+  Stream<List<SwapRequest>> incoming(String uid) =>
+      _service.incomingRequests(uid);
+
+  Stream<List<SwapRequest>> outgoing(String uid) =>
+      _service.outgoingRequests(uid);
 
   Future<String> sendRequest(SwapRequest request) async {
     _isLoading = true;
@@ -21,7 +25,12 @@ class SwapProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> accept(String id) => _service.updateStatus(id, SwapStatus.accepted);
-  Future<void> reject(String id) => _service.updateStatus(id, SwapStatus.rejected);
-  Future<void> cancel(String id) => _service.deleteRequest(id);
+  Future<void> accept(String id) =>
+      _service.updateStatus(id, SwapStatus.accepted);
+
+  Future<void> reject(String id) =>
+      _service.updateStatus(id, SwapStatus.rejected);
+
+  Future<void> cancel(String id) =>
+      _service.deleteRequest(id);
 }

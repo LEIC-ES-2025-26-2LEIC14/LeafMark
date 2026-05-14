@@ -4,7 +4,6 @@ enum SwapStatus {
   pending,
   accepted,
   rejected,
-  completed,
   cancelled,
 }
 

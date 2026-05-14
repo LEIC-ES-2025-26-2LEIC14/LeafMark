@@ -26,26 +26,21 @@ class ExchangeHistoryScreen extends StatelessWidget {
         stream: swapService.exchangeHistory(uid),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           final swaps = snapshot.data ?? [];
 
           if (swaps.isEmpty) {
-            return const Center(
-              child: Text('No exchanges yet'),
-            );
+            return const Center(child: Text('No exchanges yet'));
           }
 
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: swaps.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final swap = swaps[index];
-
               final isRequester = swap.requesterId == uid;
 
               final partnerId =
@@ -65,8 +60,7 @@ class ExchangeHistoryScreen extends StatelessWidget {
                   return FutureBuilder<String?>(
                     future: browseService.fetchDisplayName(partnerId),
                     builder: (context, userSnap) {
-                      final partnerName =
-                          userSnap.data ?? 'Unknown user';
+                      final partnerName = userSnap.data ?? 'Unknown user';
 
                       return Container(
                         padding: const EdgeInsets.all(12),
@@ -90,15 +84,14 @@ class ExchangeHistoryScreen extends StatelessWidget {
                                   : Container(
                                       width: 60,
                                       height: 90,
-                                      color: Colors.grey[300],
+                                      color: Colors.grey,
                                       child: const Icon(Icons.book),
                                     ),
                             ),
                             const SizedBox(width: 16),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     book?.title ?? 'Unknown book',
