@@ -5,7 +5,7 @@ class NotificationService {
   final FirebaseFirestore _db;
 
   NotificationService({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance;
 
   CollectionReference<Map<String, dynamic>> get _notifications =>
       _db.collection('notifications');
@@ -19,9 +19,9 @@ class NotificationService {
   }
 
   Future<void> createNotification(
-      AppNotification notification, {
-        String? notificationId,
-      }) async {
+    AppNotification notification, {
+    String? notificationId,
+  }) async {
     await notificationDocument(notificationId).set(notification.toMap());
   }
 
@@ -34,9 +34,9 @@ class NotificationService {
         .snapshots()
         .map(
           (snapshot) => snapshot.docs
-          .map((doc) => AppNotification.fromMap(doc.data(), doc.id))
-          .toList(),
-    );
+              .map((doc) => AppNotification.fromMap(doc.data(), doc.id))
+              .toList(),
+        );
   }
 
   Stream<int> unreadCount(String uid) {
@@ -63,6 +63,26 @@ class NotificationService {
 
     for (final doc in unread.docs) {
       batch.update(doc.reference, {'isRead': true});
+    }
+
+    await batch.commit();
+  }
+
+  Future<void> deleteNotification(String notificationId) async {
+    await _notifications.doc(notificationId).delete();
+  }
+
+  Future<void> clearAllForUser(String uid) async {
+    if (uid.isEmpty) return;
+
+    final snapshot = await _notifications
+        .where('recipientId', isEqualTo: uid)
+        .get();
+
+    final batch = _db.batch();
+
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
     }
 
     await batch.commit();

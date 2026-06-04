@@ -43,6 +43,15 @@ class FakeAuthProvider extends ChangeNotifier implements AuthProvider {
     String? favoriteBookAuthor,
     String? favoriteBookCoverUrl,
   }) async => true;
+
+  @override
+  Future<bool> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async => true;
+
+  @override
+  Future<bool> deleteAccount({required String password}) async => true;
 }
 
 void main() {
@@ -85,7 +94,7 @@ void main() {
         await tester.pumpAndSettle();
       });
 
-      expect(find.text('Your shelf is empty. Scan a book to add it!'), findsOneWidget);
+      expect(find.text('Your shelf is empty'), findsOneWidget);
     });
 
     testWidgets('shows AppBar with My Shelf title', (tester) async {
@@ -141,10 +150,7 @@ void main() {
         await tester.pumpAndSettle();
       });
 
-      expect(
-        find.text('Your shelf is empty. Scan a book to add it!'),
-        findsNothing,
-      );
+      expect(find.text('Your shelf is empty'), findsNothing);
     });
   });
 

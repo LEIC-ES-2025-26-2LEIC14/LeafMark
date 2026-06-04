@@ -1,4 +1,7 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:photo_view/photo_view.dart';
+import 'package:photo_view/photo_view_gallery.dart';
 import 'package:provider/provider.dart';
 
 import '../../domain/models/book.dart';
@@ -10,6 +13,7 @@ import '../../../swaps/data/services/swap_service.dart';
 import '../../../chat/presentation/providers/chat_provider.dart';
 import '../../../chat/presentation/screens/chat_screen.dart';
 import '../providers/book_shelf_provider.dart';
+import 'edit_book_listing_screen.dart';
 
 class BookDetailScreen extends StatelessWidget {
   final Book book;
@@ -24,12 +28,13 @@ class BookDetailScreen extends StatelessWidget {
   });
 
   List<String> get _galleryUrls {
-    final urls = <String>[
-      ...book.conditionPhotoUrls,
-      if (book.coverUrl != null && book.coverUrl!.isNotEmpty) book.coverUrl!,
-    ];
-
-    return urls.toSet().toList();
+    if (book.conditionPhotoUrls.isNotEmpty) {
+      return book.conditionPhotoUrls;
+    }
+    if (book.coverUrl != null && book.coverUrl!.isNotEmpty) {
+      return [book.coverUrl!];
+    }
+    return [];
   }
 
   @override
@@ -45,6 +50,7 @@ class BookDetailScreen extends StatelessWidget {
             title: book.title,
             imageUrls: _galleryUrls,
             isReserved: book.isLocked,
+            hasRealPhotos: book.conditionPhotoUrls.isNotEmpty,
           ),
           SliverToBoxAdapter(
             child: Padding(
@@ -56,20 +62,19 @@ class BookDetailScreen extends StatelessWidget {
                   const SizedBox(height: 18),
                   _MetaSection(book: book),
                   const SizedBox(height: 24),
-                  if (!isCatalogView && book.ownerId != null)
-                    _OwnerCard(
-                      book: book,
-                      isOwner: isOwner,
-                    ),
-                  if (!isCatalogView && book.ownerId != null)
+                  if (!isCatalogView && book.ownerId != null) ...[
+                    _OwnerCard(book: book, isOwner: isOwner),
                     const SizedBox(height: 24),
+                  ],
                   _InfoSection(book: book),
                   if (book.notes != null && book.notes!.trim().isNotEmpty) ...[
                     const SizedBox(height: 24),
                     _NotesSection(notes: book.notes!),
                   ],
                   const SizedBox(height: 24),
-                  _TrustSection(
+                  _SwapReadinessSection(
+                    isOwner: isOwner,
+                    isReserved: book.isLocked,
                     hasRealPhotos: book.conditionPhotoUrls.isNotEmpty,
                   ),
                 ],
@@ -81,35 +86,54 @@ class BookDetailScreen extends StatelessWidget {
       bottomNavigationBar: isCatalogView
           ? null
           : _BottomActionBar(
-        isOwner: isOwner,
-        isReserved: book.isLocked,
-        isLoading: swapProvider.isLoading,
-        bottomPadding: bottomPadding,
-        onViewOwner: book.ownerId == null
-            ? null
-            : () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PublicProfileScreen(
-              userId: book.ownerId!,
-              displayName: book.ownerName ?? 'LeafMark user',
+              isOwner: isOwner,
+              isReserved: book.isLocked,
+              isLoading: swapProvider.isLoading,
+              bottomPadding: bottomPadding,
+              onViewOwner: book.ownerId == null
+                  ? null
+                  : () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PublicProfileScreen(
+                          userId: book.ownerId!,
+                          displayName: book.ownerName ?? 'LeafMark user',
+                        ),
+                      ),
+                    ),
+              onRequestSwap: isOwner || book.isLocked
+                  ? null
+                  : () => _showBookPickerSheet(context, authProvider),
+              onEditListing: isOwner && !book.isLocked
+                  ? () async {
+                      final updatedBook = await Navigator.push<Book>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => EditBookListingScreen(book: book),
+                        ),
+                      );
+
+                      if (updatedBook != null && context.mounted) {
+                        Navigator.pop(context);
+                      }
+                    }
+                  : null,
             ),
-          ),
-        ),
-        onRequestSwap: isOwner || book.isLocked
-            ? null
-            : () => _showBookPickerSheet(context, authProvider),
-      ),
     );
   }
 
-  void _showBookPickerSheet(BuildContext context, AuthProvider authProvider) {
-    final shelfBooks = context.read<BookShelfProvider>().availableBooks;
+  void _showBookPickerSheet(
+    BuildContext pageContext,
+    AuthProvider authProvider,
+  ) {
+    final shelfBooks = pageContext.read<BookShelfProvider>().availableBooks;
 
     if (shelfBooks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(pageContext).showSnackBar(
         const SnackBar(
-          content: Text('You need available books on your shelf to propose a swap.'),
+          content: Text(
+            'You need available books on your shelf to propose a swap.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -117,82 +141,107 @@ class BookDetailScreen extends StatelessWidget {
     }
 
     showModalBottomSheet(
-      context: context,
+      context: pageContext,
       showDragHandle: true,
       isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (sheetCtx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Choose a book to offer',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.68,
+          minChildSize: 0.42,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+              child: Column(
+                children: [
+                  Text(
+                    'Choose a book to offer',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Pick one of your available books to start a swap request.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.52,
+                  const SizedBox(height: 6),
+                  Text(
+                    'Pick one of your available books to start a swap request.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.62),
+                    ),
                   ),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: shelfBooks.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1),
-                    itemBuilder: (ctx, index) {
-                      final offeredBook = shelfBooks[index];
-                      final displayUrl = offeredBook.conditionPhotoUrls.isNotEmpty
-                          ? offeredBook.conditionPhotoUrls.first
-                          : offeredBook.coverUrl;
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView.separated(
+                      controller: scrollController,
+                      itemCount: shelfBooks.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 8),
+                      itemBuilder: (ctx, index) {
+                        final offeredBook = shelfBooks[index];
+                        final displayUrl =
+                            offeredBook.conditionPhotoUrls.isNotEmpty
+                            ? offeredBook.conditionPhotoUrls.first
+                            : offeredBook.coverUrl;
 
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: _MiniBookCover(url: displayUrl),
-                        title: Text(
-                          offeredBook.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          '${offeredBook.authors} · ${offeredBook.condition.label}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () {
-                          Navigator.pop(sheetCtx);
-                          _submitSwap(context, authProvider, offeredBook);
-                        },
-                      );
-                    },
+                        return Material(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(18),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            leading: _MiniBookCover(url: displayUrl),
+                            title: Text(
+                              offeredBook.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${offeredBook.authors} · ${offeredBook.condition.label}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: const Icon(Icons.chevron_right_rounded),
+                            onTap: () {
+                              Navigator.pop(sheetCtx);
+                              _submitSwap(
+                                pageContext,
+                                authProvider,
+                                offeredBook,
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
   }
 
   Future<void> _submitSwap(
-      BuildContext context,
-      AuthProvider authProvider,
-      Book offeredBook,
-      ) async {
+    BuildContext context,
+    AuthProvider authProvider,
+    Book offeredBook,
+  ) async {
     final swapProvider = context.read<SwapProvider>();
     final chatProvider = context.read<ChatProvider>();
     final colorScheme = Theme.of(context).colorScheme;
@@ -250,6 +299,7 @@ class BookDetailScreen extends StatelessWidget {
           SnackBar(
             content: Text(e.toString().replaceAll('Exception: ', '')),
             backgroundColor: colorScheme.error,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -257,12 +307,12 @@ class BookDetailScreen extends StatelessWidget {
   }
 
   void _showResultDialog(
-      BuildContext context, {
-        required String title,
-        required String message,
-        required IconData icon,
-        required Color iconColor,
-      }) {
+    BuildContext context, {
+    required String title,
+    required String message,
+    required IconData icon,
+    required Color iconColor,
+  }) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -289,11 +339,13 @@ class _BookGalleryAppBar extends StatefulWidget {
   final String title;
   final List<String> imageUrls;
   final bool isReserved;
+  final bool hasRealPhotos;
 
   const _BookGalleryAppBar({
     required this.title,
     required this.imageUrls,
     required this.isReserved,
+    required this.hasRealPhotos,
   });
 
   @override
@@ -318,11 +370,8 @@ class _BookGalleryAppBarState extends State<_BookGalleryAppBar> {
       expandedHeight: 390,
       pinned: true,
       stretch: true,
-      title: Text(
-        widget.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      elevation: 0,
+      title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           fit: StackFit.expand,
@@ -334,17 +383,30 @@ class _BookGalleryAppBarState extends State<_BookGalleryAppBar> {
                 itemCount: widget.imageUrls.length,
                 onPageChanged: (index) => setState(() => _currentIndex = index),
                 itemBuilder: (context, index) {
-                  return Image.network(
-                    widget.imageUrls[index],
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                    const _PlaceholderCover(),
+                  return GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => _FullScreenGallery(
+                            imageUrls: widget.imageUrls,
+                            initialIndex: index,
+                          ),
+                          fullscreenDialog: true,
+                        ),
+                      );
+                    },
+                    child: CachedNetworkImage(
+                      imageUrl: widget.imageUrls[index],
+                      fit: BoxFit.cover,
+                      errorWidget: (context, url, error) =>
+                          const _PlaceholderCover(),
+                    ),
                   );
                 },
               )
             else
               const _PlaceholderCover(),
-
             const IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -352,51 +414,65 @@ class _BookGalleryAppBarState extends State<_BookGalleryAppBar> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black45,
-                      Colors.transparent,
                       Colors.black54,
+                      Colors.transparent,
+                      Colors.black87,
                     ],
                   ),
                 ),
               ),
             ),
-
-            if (widget.isReserved)
-              Positioned(
-                left: 16,
-                bottom: 20,
-                child: _StatusPill(
-                  icon: Icons.lock_outline,
-                  label: 'Reserved',
-                  color: Colors.orange,
-                ),
-              ),
-
-            if (hasImages && widget.imageUrls.length > 1)
-              Positioned(
-                right: 16,
-                bottom: 20,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    '${_currentIndex + 1}/${widget.imageUrls.length}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 20,
+              child: Row(
+                children: [
+                  if (widget.isReserved)
+                    const _StatusPill(
+                      icon: Icons.lock_outline_rounded,
+                      label: 'Reserved',
+                      color: Colors.orange,
+                    )
+                  else
+                    _StatusPill(
+                      icon: widget.hasRealPhotos
+                          ? Icons.verified_outlined
+                          : Icons.info_outline_rounded,
+                      label: widget.hasRealPhotos
+                          ? 'Real photos'
+                          : 'Cover only',
+                      color: widget.hasRealPhotos
+                          ? Colors.green
+                          : Colors.blueGrey,
                     ),
-                  ),
-                ),
+                  const Spacer(),
+                  if (hasImages && widget.imageUrls.length > 1)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '${_currentIndex + 1}/${widget.imageUrls.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                ],
               ),
-
+            ),
             if (hasImages && widget.imageUrls.length > 1)
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 22,
+                bottom: 58,
                 child: IgnorePointer(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -434,6 +510,7 @@ class _TitleSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -441,15 +518,17 @@ class _TitleSection extends StatelessWidget {
         Text(
           book.title,
           style: textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w800,
-            height: 1.1,
+            fontWeight: FontWeight.w900,
+            height: 1.08,
+            letterSpacing: -0.4,
           ),
         ),
         const SizedBox(height: 8),
         Text(
           book.authors,
           style: textTheme.titleMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -475,7 +554,7 @@ class _MetaSection extends StatelessWidget {
         ),
         if (book.category != null && book.category!.trim().isNotEmpty)
           _MetaChip(
-            icon: Icons.category_outlined,
+            icon: Icons.auto_stories_outlined,
             label: book.category!,
             color: Colors.deepPurple,
           ),
@@ -513,10 +592,7 @@ class _OwnerCard extends StatelessWidget {
   final Book book;
   final bool isOwner;
 
-  const _OwnerCard({
-    required this.book,
-    required this.isOwner,
-  });
+  const _OwnerCard({required this.book, required this.isOwner});
 
   @override
   Widget build(BuildContext context) {
@@ -525,60 +601,63 @@ class _OwnerCard extends StatelessWidget {
         ? ownerName.trim()[0].toUpperCase()
         : '?';
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: book.ownerId == null
-          ? null
-          : () => Navigator.push(
+    return Material(
+      color: Theme.of(
         context,
-        MaterialPageRoute(
-          builder: (_) => PublicProfileScreen(
-            userId: book.ownerId!,
-            displayName: ownerName,
-          ),
-        ),
-      ),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(context)
-              .colorScheme
-              .surfaceContainerHighest
-              .withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 24,
-              child: Text(initial),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isOwner ? 'Listed by you' : 'Listed by $ownerName',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+      ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: book.ownerId == null
+            ? null
+            : () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PublicProfileScreen(
+                    userId: book.ownerId!,
+                    displayName: ownerName,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    isOwner
-                        ? 'This book is currently on your shelf.'
-                        : 'View profile, shelf, reviews and wishlist.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+                ),
               ),
-            ),
-            const Icon(Icons.chevron_right),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 25,
+                child: Text(
+                  initial,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isOwner ? 'Listed by you' : 'Listed by $ownerName',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isOwner
+                          ? 'This book is currently on your shelf.'
+                          : 'View profile, shelf, reviews and wishlist.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.62),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
         ),
       ),
     );
@@ -593,7 +672,7 @@ class _InfoSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _SectionCard(
-      title: 'About this book',
+      title: 'Book details',
       child: Column(
         children: [
           _InfoRow(
@@ -608,7 +687,7 @@ class _InfoSection extends StatelessWidget {
           ),
           if (book.category != null && book.category!.trim().isNotEmpty)
             _InfoRow(
-              icon: Icons.category_outlined,
+              icon: Icons.auto_stories_outlined,
               label: 'Category',
               value: book.category!,
             ),
@@ -622,6 +701,13 @@ class _InfoSection extends StatelessWidget {
               icon: Icons.place_outlined,
               label: 'Location',
               value: book.location!,
+            ),
+          if (book.isbn.trim().isNotEmpty)
+            _InfoRow(
+              icon: Icons.qr_code_rounded,
+              label: 'ISBN',
+              value: book.isbn,
+              isLast: true,
             ),
         ],
       ),
@@ -650,7 +736,9 @@ class _NotesSection extends StatelessWidget {
           Expanded(
             child: Text(
               notes,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.35),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(height: 1.35),
             ),
           ),
         ],
@@ -659,29 +747,84 @@ class _NotesSection extends StatelessWidget {
   }
 }
 
-class _TrustSection extends StatelessWidget {
+class _SwapReadinessSection extends StatelessWidget {
+  final bool isOwner;
+  final bool isReserved;
   final bool hasRealPhotos;
 
-  const _TrustSection({required this.hasRealPhotos});
+  const _SwapReadinessSection({
+    required this.isOwner,
+    required this.isReserved,
+    required this.hasRealPhotos,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    IconData icon;
+    Color color;
+    String title;
+    String message;
+
+    if (isOwner) {
+      icon = Icons.inventory_2_outlined;
+      color = theme.colorScheme.primary;
+      title = 'Your listing';
+      message = 'Other readers can find this book and propose a swap.';
+    } else if (isReserved) {
+      icon = Icons.lock_outline_rounded;
+      color = Colors.orange.shade700;
+      title = 'Currently reserved';
+      message =
+          'This book is involved in another swap and cannot be requested right now.';
+    } else if (hasRealPhotos) {
+      icon = Icons.verified_outlined;
+      color = Colors.green.shade700;
+      title = 'Ready to swap';
+      message =
+          'This listing includes real condition photos uploaded by the owner.';
+    } else {
+      icon = Icons.info_outline_rounded;
+      color = Colors.blueGrey.shade700;
+      title = 'Ask before swapping';
+      message =
+          'This listing only shows the cover. You can ask for more details in chat.';
+    }
+
     return _SectionCard(
-      title: 'Exchange confidence',
+      title: 'Swap confidence',
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            hasRealPhotos ? Icons.verified_outlined : Icons.info_outline,
-            color: hasRealPhotos ? Colors.green.shade700 : Colors.orange.shade700,
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: color),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              hasRealPhotos
-                  ? 'This listing includes real condition photos uploaded by the owner.'
-                  : 'This listing only uses the book cover. Ask the owner for more details before swapping.',
-              style: Theme.of(context).textTheme.bodyMedium,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -697,6 +840,7 @@ class _BottomActionBar extends StatelessWidget {
   final double bottomPadding;
   final VoidCallback? onViewOwner;
   final VoidCallback? onRequestSwap;
+  final VoidCallback? onEditListing;
 
   const _BottomActionBar({
     required this.isOwner,
@@ -705,15 +849,18 @@ class _BottomActionBar extends StatelessWidget {
     required this.bottomPadding,
     required this.onViewOwner,
     required this.onRequestSwap,
+    required this.onEditListing,
   });
 
   @override
   Widget build(BuildContext context) {
-    final disabledText = isOwner
-        ? 'This is your listing'
-        : isReserved
-        ? 'Book currently reserved'
-        : null;
+    final disabledText = isReserved ? 'Reserved' : null;
+
+    final primaryLabel = isOwner ? 'Edit listing' : 'Request swap';
+    final primaryIcon = isOwner
+        ? Icons.edit_outlined
+        : Icons.swap_horiz_rounded;
+    final primaryAction = isOwner ? onEditListing : onRequestSwap;
 
     return Container(
       padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPadding),
@@ -732,8 +879,12 @@ class _BottomActionBar extends StatelessWidget {
           Expanded(
             child: OutlinedButton.icon(
               onPressed: onViewOwner,
-              icon: const Icon(Icons.person_outline),
-              label: const Text('Owner'),
+              icon: Icon(
+                isOwner
+                    ? Icons.inventory_2_outlined
+                    : Icons.person_outline_rounded,
+              ),
+              label: Text(isOwner ? 'My shelf' : 'Owner'),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
@@ -743,18 +894,20 @@ class _BottomActionBar extends StatelessWidget {
           Expanded(
             flex: 2,
             child: FilledButton.icon(
-              onPressed: disabledText != null || isLoading ? null : onRequestSwap,
+              onPressed: disabledText != null || isLoading
+                  ? null
+                  : primaryAction,
               icon: isLoading
                   ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-                  : const Icon(Icons.swap_horiz_rounded),
-              label: Text(disabledText ?? 'Request swap'),
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Icon(primaryIcon),
+              label: Text(disabledText ?? primaryLabel),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
@@ -770,10 +923,7 @@ class _SectionCard extends StatelessWidget {
   final String title;
   final Widget child;
 
-  const _SectionCard({
-    required this.title,
-    required this.child,
-  });
+  const _SectionCard({required this.title, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -782,19 +932,23 @@ class _SectionCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.045),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 14),
           child,
@@ -808,17 +962,19 @@ class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
+  final bool isLast;
 
   const _InfoRow({
     required this.icon,
     required this.label,
     required this.value,
+    this.isLast = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 14),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -828,15 +984,19 @@ class _InfoRow extends StatelessWidget {
             width: 86,
             child: Text(
               label,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.58),
+              ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -875,7 +1035,7 @@ class _MetaChip extends StatelessWidget {
             style: TextStyle(
               color: color,
               fontSize: 13,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
@@ -911,7 +1071,7 @@ class _StatusPill extends StatelessWidget {
             label,
             style: const TextStyle(
               color: Colors.white,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w900,
             ),
           ),
         ],
@@ -928,16 +1088,16 @@ class _MiniBookCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       child: url != null
           ? Image.network(
-        url!,
-        width: 42,
-        height: 60,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) =>
-        const _MiniPlaceholderCover(),
-      )
+              url!,
+              width: 42,
+              height: 60,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) =>
+                  const _MiniPlaceholderCover(),
+            )
           : const _MiniPlaceholderCover(),
     );
   }
@@ -966,6 +1126,71 @@ class _PlaceholderCover extends StatelessWidget {
       color: Colors.grey[200],
       child: const Center(
         child: Icon(Icons.book_outlined, size: 80, color: Colors.grey),
+      ),
+    );
+  }
+}
+
+class _FullScreenGallery extends StatefulWidget {
+  final List<String> imageUrls;
+  final int initialIndex;
+
+  const _FullScreenGallery({
+    required this.imageUrls,
+    required this.initialIndex,
+  });
+
+  @override
+  State<_FullScreenGallery> createState() => _FullScreenGalleryState();
+}
+
+class _FullScreenGalleryState extends State<_FullScreenGallery> {
+  late PageController _controller;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _controller = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        title: Text('${_currentIndex + 1} / ${widget.imageUrls.length}'),
+      ),
+      body: PhotoViewGallery.builder(
+        scrollPhysics: const BouncingScrollPhysics(),
+        builder: (BuildContext context, int index) {
+          return PhotoViewGalleryPageOptions(
+            imageProvider: CachedNetworkImageProvider(widget.imageUrls[index]),
+            initialScale: PhotoViewComputedScale.contained,
+            minScale: PhotoViewComputedScale.contained,
+            maxScale: PhotoViewComputedScale.covered * 4,
+          );
+        },
+        itemCount: widget.imageUrls.length,
+        loadingBuilder: (context, event) =>
+            const Center(child: CircularProgressIndicator()),
+        backgroundDecoration: const BoxDecoration(color: Colors.black),
+        pageController: _controller,
+        onPageChanged: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
       ),
     );
   }

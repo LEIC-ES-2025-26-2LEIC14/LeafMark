@@ -6,16 +6,15 @@ import '../../../books/data/services/block_service.dart';
 import '../../../notifications/data/services/notification_service.dart';
 import '../../../notifications/domain/models/app_notification.dart';
 
-
 class BookAlreadyLockedException implements Exception {
   final String bookId;
   const BookAlreadyLockedException(this.bookId);
 }
 
-/// NOTE: Block enforcement is currently handled Client-Side. 
-/// While we validate blocks before writing to Firestore, malicious users 
-/// could bypass Dart services. Full Server-Side enforcement would require 
-/// custom Cloud Functions or cross-collection Firestore rules. 
+/// NOTE: Block enforcement is currently handled Client-Side.
+/// While we validate blocks before writing to Firestore, malicious users
+/// could bypass Dart services. Full Server-Side enforcement would require
+/// custom Cloud Functions or cross-collection Firestore rules.
 /// Accepted as prototype-level protection.
 
 class ChatService {
@@ -28,9 +27,9 @@ class ChatService {
     FirebaseFirestore? firestore,
     BlockService? blockService,
     NotificationService? notificationService,
-  })  : _db = firestore ?? FirebaseFirestore.instance,
-        _blockService = blockService ?? BlockService(),
-        _notificationService = notificationService ?? NotificationService();
+  }) : _db = firestore ?? FirebaseFirestore.instance,
+       _blockService = blockService ?? BlockService(),
+       _notificationService = notificationService ?? NotificationService();
 
   CollectionReference get _chats => _db.collection('chats');
 
@@ -40,9 +39,14 @@ class ChatService {
   }) async {
     // Validate block relationship before creating the chat room
     if (participantIds.length == 2) {
-      final hasBlock = await _blockService.hasBlockRelationship(participantIds[0], participantIds[1]);
+      final hasBlock = await _blockService.hasBlockRelationship(
+        participantIds[0],
+        participantIds[1],
+      );
       if (hasBlock) {
-        throw Exception('Cannot create chat. Access restricted due to a block relationship.');
+        throw Exception(
+          'Cannot create chat. Access restricted due to a block relationship.',
+        );
       }
     }
 
@@ -58,6 +62,38 @@ class ChatService {
       lastMessageAt: DateTime.now(),
     );
     await docRef.set(metadata.toMap());
+  }
+
+  Future<void> deleteChat(String swapId, String currentUid) async {
+    final docRef = _chats.doc(swapId);
+    final snap = await docRef.get();
+    
+    if (!snap.exists) return;
+    
+    final data = snap.data() as Map<String, dynamic>;
+    final hiddenBy = List<String>.from(data['hiddenBy'] ?? []);
+    final participants = List<String>.from(data['participantIds'] ?? []);
+    
+    if (!hiddenBy.contains(currentUid)) {
+      hiddenBy.add(currentUid);
+    }
+    
+    // If all participants have hidden the chat, we can safely delete it.
+    final allHidden = participants.isNotEmpty && participants.every((p) => hiddenBy.contains(p));
+    
+    if (allHidden) {
+      final messagesSnap = await docRef.collection('messages').get();
+      final batch = _db.batch();
+      for (final doc in messagesSnap.docs) {
+        batch.delete(doc.reference);
+      }
+      batch.delete(docRef);
+      await batch.commit();
+    } else {
+      await docRef.update({
+        'hiddenBy': FieldValue.arrayUnion([currentUid]),
+      });
+    }
   }
 
   Future<void> sendMessage({
@@ -88,7 +124,7 @@ class ChatService {
       }
 
       recipientId = participants.firstWhere(
-            (uid) => uid != message.senderId,
+        (uid) => uid != message.senderId,
         orElse: () => '',
       );
 
@@ -97,10 +133,7 @@ class ChatService {
       }
     }
 
-    Map<String, String?> senderInfo = {
-      'displayName': null,
-      'photoUrl': null,
-    };
+    Map<String, String?> senderInfo = {'displayName': null, 'photoUrl': null};
 
     if (recipientId != null) {
       senderInfo = await fetchUserInfo(message.senderId);
@@ -116,12 +149,14 @@ class ChatService {
     batch.update(chatRef, {
       'lastMessage': message.text ?? _lastMessagePreview(message.type),
       'lastMessageAt': Timestamp.fromDate(message.createdAt),
+      'hiddenBy': [],
     });
 
     if (recipientId != null) {
       final notificationId = 'chat_${swapId}_${messageRef.id}';
-      final notificationRef =
-      _notificationService.notificationDocument(notificationId);
+      final notificationRef = _notificationService.notificationDocument(
+        notificationId,
+      );
 
       batch.set(
         notificationRef,
@@ -257,26 +292,42 @@ class ChatService {
         .collection('messages')
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-        .map((doc) => ChatMessage.fromMap(doc.data(), doc.id))
-        .toList());
+        .map(
+          (snap) => snap.docs
+              .map((doc) => ChatMessage.fromMap(doc.data(), doc.id))
+              .toList(),
+        );
   }
 
-Stream<List<ChatMetadata>> getChats(String uid) {
+  Stream<List<ChatMetadata>> getChats(String uid) {
     final chatsStream = _chats
         .where('participantIds', arrayContains: uid)
         .orderBy('lastMessageAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-        .map((doc) =>
-        ChatMetadata.fromMap(doc.data() as Map<String, dynamic>))
-        .toList());
-        
-    final blocksStream = _blockService.getBlockedUsersStream(uid).onErrorReturn(<String>[]);
+        .map(
+          (snap) => snap.docs
+              .map(
+                (doc) =>
+                    ChatMetadata.fromMap(doc.data() as Map<String, dynamic>),
+              )
+              .toList(),
+        );
 
-    return Rx.combineLatest2(chatsStream, blocksStream, (List<ChatMetadata> chats, List<String> blockedUids) {
+    final blocksStream = _blockService
+        .getBlockedUsersStream(uid)
+        .onErrorReturn(<String>[]);
+
+    return Rx.combineLatest2(chatsStream, blocksStream, (
+      List<ChatMetadata> chats,
+      List<String> blockedUids,
+    ) {
       return chats.where((chat) {
-        final otherUid = chat.participantIds.firstWhere((id) => id != uid, orElse: () => '');
+        if (chat.hiddenBy.contains(uid)) return false;
+        
+        final otherUid = chat.participantIds.firstWhere(
+          (id) => id != uid,
+          orElse: () => '',
+        );
         return !blockedUids.contains(otherUid);
       }).toList();
     });
@@ -380,10 +431,7 @@ Stream<List<ChatMetadata>> getChats(String uid) {
     }
   }
 
-  String _notificationBodyForMessage(
-      ChatMessage message,
-      String senderName,
-      ) {
+  String _notificationBodyForMessage(ChatMessage message, String senderName) {
     switch (message.type) {
       case MessageType.proposal:
         return '$senderName sent you a swap proposal.';

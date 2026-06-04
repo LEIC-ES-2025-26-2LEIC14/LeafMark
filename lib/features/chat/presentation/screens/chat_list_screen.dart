@@ -1,75 +1,145 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/chat_provider.dart';
+import 'package:rxdart/rxdart.dart';
+
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/models/chat_metadata.dart';
+import '../providers/chat_provider.dart';
 import 'chat_screen.dart';
 
-class ChatListScreen extends StatelessWidget {
+class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
   @override
+  State<ChatListScreen> createState() => _ChatListScreenState();
+}
+
+class _ChatListScreenState extends State<ChatListScreen> {
+  late final Stream<List<ChatMetadata>> _chatsStream;
+  final Set<String> _dismissedChatIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _chatsStream = context.read<ChatProvider>().getChats().shareValue();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final chatProvider = context.read<ChatProvider>();
     final currentUid = context.read<AuthProvider>().user?.uid ?? '';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Chats')),
-      body: StreamBuilder<List<ChatMetadata>>(
-        stream: chatProvider.getChats(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: SafeArea(
+        child: Column(
+          children: [
+            const _ChatsHeader(),
+            Expanded(
+              child: StreamBuilder<List<ChatMetadata>>(
+                stream: _chatsStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const _ChatsLoadingState();
+                  }
 
-          final chats = snapshot.data ?? [];
+                  if (snapshot.hasError) {
+                    return const _ChatsMessageState(
+                      icon: Icons.error_outline_rounded,
+                      title: 'Could not load chats',
+                      message: 'Something went wrong. Please try again later.',
+                    );
+                  }
 
-          if (chats.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.chat_bubble_outline,
-                    size: 64,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.4),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No chats yet',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Propose a swap to start a conversation.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+                  final allChats = snapshot.data ?? [];
+                  final chats = allChats.where((c) => !_dismissedChatIds.contains(c.swapId)).toList();
+
+                  if (chats.isEmpty) {
+                    return const _ChatsMessageState(
+                      icon: Icons.forum_outlined,
+                      title: 'No chats yet',
+                      message: 'Propose a swap to start a conversation.',
+                    );
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    itemCount: chats.length,
+                    itemBuilder: (context, index) {
+                      final chat = chats[index];
+                      final otherUid = chat.participantIds.firstWhere(
+                        (id) => id != currentUid,
+                        orElse: () => '',
+                      );
+
+                      return _ChatTile(
+                        key: ValueKey(chat.swapId),
+                        chat: chat,
+                        otherUid: otherUid,
+                        onDismissed: () {
+                          setState(() {
+                            _dismissedChatIds.add(chat.swapId);
+                          });
+                        },
+                      );
+                    },
+                  );
+                },
               ),
-            );
-          }
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: chats.length,
-            separatorBuilder: (context, index) =>
-            const Divider(height: 1, indent: 72),
-            itemBuilder: (context, index) {
-              final chat = chats[index];
-              final otherUid = chat.participantIds
-                  .firstWhere((id) => id != currentUid, orElse: () => '');
-              return _ChatTile(
-                key: ValueKey(chat.swapId),
-                chat: chat,
-                otherUid: otherUid,
-              );
-            },
-          );
-        },
+class _ChatsHeader extends StatelessWidget {
+  const _ChatsHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Icon(
+              Icons.forum_rounded,
+              color: theme.colorScheme.primary,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Chats',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Manage your book swap conversations.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.62),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -78,8 +148,14 @@ class ChatListScreen extends StatelessWidget {
 class _ChatTile extends StatefulWidget {
   final ChatMetadata chat;
   final String otherUid;
+  final VoidCallback onDismissed;
 
-  const _ChatTile({super.key, required this.chat, required this.otherUid});
+  const _ChatTile({
+    super.key,
+    required this.chat,
+    required this.otherUid,
+    required this.onDismissed,
+  });
 
   @override
   State<_ChatTile> createState() => _ChatTileState();
@@ -98,6 +174,7 @@ class _ChatTileState extends State<_ChatTile> {
   @override
   void didUpdateWidget(_ChatTile oldWidget) {
     super.didUpdateWidget(oldWidget);
+
     if (oldWidget.otherUid != widget.otherUid) {
       _displayName = null;
       _photoUrl = null;
@@ -106,79 +183,364 @@ class _ChatTileState extends State<_ChatTile> {
   }
 
   Future<void> _loadUserInfo() async {
-    final info = await context
-        .read<ChatProvider>()
-        .fetchUserInfo(widget.otherUid);
-    if (mounted) {
-      setState(() {
-        _displayName = info['displayName'];
-        _photoUrl = info['photoUrl'];
-      });
-    }
+    final info = await context.read<ChatProvider>().fetchUserInfo(
+      widget.otherUid,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _displayName = info['displayName'];
+      _photoUrl = info['photoUrl'];
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     final name = _displayName ?? widget.otherUid;
+    final lastMessage = widget.chat.lastMessage ?? 'Swap proposal';
 
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: colorScheme.primaryContainer,
-        backgroundImage:
-        _photoUrl != null ? NetworkImage(_photoUrl!) : null,
-        child: _photoUrl == null
-            ? Text(
-          name.isNotEmpty ? name[0].toUpperCase() : '?',
-          style: TextStyle(
-            color: colorScheme.onPrimaryContainer,
-            fontWeight: FontWeight.bold,
-          ),
-        )
-            : null,
-      ),
-      title: Text(
-        name,
-        style: const TextStyle(fontWeight: FontWeight.w600),
-      ),
-      subtitle: Text(
-        widget.chat.lastMessage ?? 'Swap proposal',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style:
-        TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.6)),
-      ),
-      trailing: widget.chat.lastMessageAt != null
-          ? Text(
-        _formatTime(widget.chat.lastMessageAt!),
-        style: TextStyle(
-          fontSize: 11,
-          color: colorScheme.onSurface.withValues(alpha: 0.5),
+    return Dismissible(
+      key: ValueKey(widget.chat.swapId),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.error,
+          borderRadius: BorderRadius.circular(20),
         ),
-      )
-          : null,
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ChatScreen(
-            swapId: widget.chat.swapId,
-            otherUserName: name,
-            otherUserId: widget.otherUid,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
+      ),
+      onDismissed: (_) {
+        widget.onDismissed();
+        context.read<ChatProvider>().deleteChat(widget.chat.swapId);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Chat deleted'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatScreen(
+                  swapId: widget.chat.swapId,
+                  otherUserName: name,
+                  otherUserId: widget.otherUid,
+                ),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  _ChatAvatar(name: name, photoUrl: _photoUrl),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: _ChatPreview(name: name, lastMessage: lastMessage),
+                  ),
+                  const SizedBox(width: 10),
+                  _ChatTrailing(time: widget.chat.lastMessageAt),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+class _ChatAvatar extends StatelessWidget {
+  final String name;
+  final String? photoUrl;
+
+  const _ChatAvatar({required this.name, required this.photoUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+    return Container(
+      width: 54,
+      height: 54,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: theme.colorScheme.primaryContainer,
+      ),
+      child: ClipOval(
+        child: photoUrl != null && photoUrl!.isNotEmpty
+            ? CachedNetworkImage(
+                imageUrl: photoUrl!,
+                fit: BoxFit.cover,
+                errorWidget: (context, url, error) =>
+                    _AvatarInitial(initial: initial),
+              )
+            : _AvatarInitial(initial: initial),
+      ),
+    );
+  }
+}
+
+class _AvatarInitial extends StatelessWidget {
+  final String initial;
+
+  const _AvatarInitial({required this.initial});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Text(
+        initial,
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: theme.colorScheme.onPrimaryContainer,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _ChatPreview extends StatelessWidget {
+  final String name;
+  final String lastMessage;
+
+  const _ChatPreview({required this.name, required this.lastMessage});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          lastMessage,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.58),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChatTrailing extends StatelessWidget {
+  final DateTime? time;
+
+  const _ChatTrailing({required this.time});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (time == null) {
+      return Icon(
+        Icons.chevron_right_rounded,
+        color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
+      );
+    }
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          _formatTime(time!),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.48),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Icon(
+          Icons.chevron_right_rounded,
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.32),
+          size: 22,
+        ),
+      ],
+    );
+  }
 
   String _formatTime(DateTime dt) {
     final now = DateTime.now();
-    if (dt.year == now.year &&
-        dt.month == now.month &&
-        dt.day == now.day) {
+
+    if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
       final h = dt.hour.toString().padLeft(2, '0');
       final m = dt.minute.toString().padLeft(2, '0');
+
       return '$h:$m';
     }
+
     return '${dt.day}/${dt.month}';
+  }
+}
+
+class _ChatsLoadingState extends StatelessWidget {
+  const _ChatsLoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 16),
+      itemCount: 5,
+      itemBuilder: (context, index) {
+        return const _LoadingChatCard();
+      },
+    );
+  }
+}
+
+class _LoadingChatCard extends StatelessWidget {
+  const _LoadingChatCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final baseColor = theme.colorScheme.onSurface.withValues(alpha: 0.08);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(color: baseColor, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                _LoadingLine(widthFactor: 0.48),
+                SizedBox(height: 10),
+                _LoadingLine(widthFactor: 0.76),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingLine extends StatelessWidget {
+  final double widthFactor;
+
+  const _LoadingLine({required this.widthFactor});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return FractionallySizedBox(
+      widthFactor: widthFactor,
+      alignment: Alignment.centerLeft,
+      child: Container(
+        height: 12,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(99),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChatsMessageState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+
+  const _ChatsMessageState({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 38, color: theme.colorScheme.primary),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.62),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

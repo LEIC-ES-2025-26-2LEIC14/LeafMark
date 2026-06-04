@@ -12,9 +12,9 @@ class FollowService {
     FirebaseFirestore? firestore,
     BlockService? blockService,
     NotificationService? notificationService,
-  })  : _db = firestore ?? FirebaseFirestore.instance,
-        _blockService = blockService ?? BlockService(),
-        _notificationService = notificationService ?? NotificationService();
+  }) : _db = firestore ?? FirebaseFirestore.instance,
+       _blockService = blockService ?? BlockService(),
+       _notificationService = notificationService ?? NotificationService();
 
   Future<void> followUser(String followerId, String followedId) async {
     if (followerId.isEmpty || followedId.isEmpty || followerId == followedId) {
@@ -136,15 +136,34 @@ class FollowService {
         .map((snap) => snap.docs.length);
   }
 
+  Stream<List<String>> getFollowers(String uid) {
+    if (uid.isEmpty) return Stream.value([]);
+
+    return _db
+        .collection('users')
+        .doc(uid)
+        .collection('followers')
+        .snapshots()
+        .map((snap) => snap.docs.map((doc) => doc.id).toList());
+  }
+
+  Stream<List<String>> getFollowing(String uid) {
+    if (uid.isEmpty) return Stream.value([]);
+
+    return _db
+        .collection('users')
+        .doc(uid)
+        .collection('following')
+        .snapshots()
+        .map((snap) => snap.docs.map((doc) => doc.id).toList());
+  }
+
   Future<Map<String, String?>> fetchUserInfo(String uid) async {
     try {
       final doc = await _db.collection('users').doc(uid).get();
 
       if (!doc.exists) {
-        return {
-          'displayName': null,
-          'photoUrl': null,
-        };
+        return {'displayName': null, 'photoUrl': null};
       }
 
       final data = doc.data()!;
@@ -154,10 +173,7 @@ class FollowService {
         'photoUrl': data['profilePictureUrl'] as String?,
       };
     } catch (_) {
-      return {
-        'displayName': null,
-        'photoUrl': null,
-      };
+      return {'displayName': null, 'photoUrl': null};
     }
   }
 }

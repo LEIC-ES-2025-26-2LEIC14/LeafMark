@@ -10,8 +10,8 @@ class NotificationProvider extends ChangeNotifier {
   NotificationProvider({
     NotificationService? service,
     required AuthProvider auth,
-  })  : _service = service ?? NotificationService(),
-        _auth = auth;
+  }) : _service = service ?? NotificationService(),
+       _auth = auth;
 
   String get _uid => _auth.user?.uid ?? '';
 
@@ -29,5 +29,13 @@ class NotificationProvider extends ChangeNotifier {
 
   Future<void> markAllAsRead() {
     return _service.markAllAsRead(_uid);
+  }
+
+  Future<void> deleteNotification(String notificationId) {
+    return _service.deleteNotification(notificationId);
+  }
+
+  Future<void> clearAll() {
+    return _service.clearAllForUser(_uid);
   }
 }
